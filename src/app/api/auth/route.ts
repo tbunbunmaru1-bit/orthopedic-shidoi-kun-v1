@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   const { password } = await request.json();
-  const correct = process.env.APP_PASSWORD || "shidoi2024";
+  const correct = (process.env.APP_PASSWORD || "shidoi2024").trim();
 
   if (password !== correct) {
     return NextResponse.json({ error: "パスワードが違います" }, { status: 401 });

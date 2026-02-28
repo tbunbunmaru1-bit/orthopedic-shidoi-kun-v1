@@ -10,7 +10,7 @@ export function middleware(request: NextRequest) {
   }
 
   const auth = request.cookies.get("auth")?.value;
-  const password = process.env.APP_PASSWORD || "shidoi2024";
+  const password = (process.env.APP_PASSWORD || "shidoi2024").trim();
 
   if (auth !== password) {
     return NextResponse.redirect(new URL("/login", request.url));
