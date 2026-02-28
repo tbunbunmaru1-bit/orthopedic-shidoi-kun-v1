@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Link from "next/link";
 
 export default function MaterialPage() {
   const params = useParams();
-  const router = useRouter();
   const surgeryName = decodeURIComponent(params.surgery as string);
   const slug = params.surgery as string;
 
@@ -16,7 +15,10 @@ export default function MaterialPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGenerated, setIsGenerated] = useState(false);
   const [error, setError] = useState("");
-  const contentRef = useRef<HTMLDivElement>(null);
+
+  // ストリーミング中はDOMを直接更新してチラつきを防ぐ
+  const streamingRef = useRef<HTMLPreElement>(null);
+  const fullContentRef = useRef("");
 
   useEffect(() => {
     const stored = localStorage.getItem(`material_${slug}`);
@@ -33,6 +35,7 @@ export default function MaterialPage() {
     setContent("");
     setError("");
     setIsGenerated(false);
+    fullContentRef.current = "";
 
     try {
       const response = await fetch("/api/generate", {
@@ -45,19 +48,22 @@ export default function MaterialPage() {
 
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
-      let fullContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        fullContent += chunk;
-        setContent(fullContent);
+        fullContentRef.current += chunk;
+        // ReactのstateではなくDOM直接更新でチラつきをゼロに
+        if (streamingRef.current) {
+          streamingRef.current.textContent = fullContentRef.current;
+        }
       }
 
-      localStorage.setItem(`material_${slug}`, fullContent);
+      // 完了後にstateに反映してMarkdown表示に切り替え
+      const finalContent = fullContentRef.current;
+      localStorage.setItem(`material_${slug}`, finalContent);
 
-      // 進捗データを更新
       const progressData = JSON.parse(localStorage.getItem("progress") || "{}");
       if (!progressData[slug]) {
         progressData[slug] = { title: surgeryName, quizResults: [], lastStudied: new Date().toISOString() };
@@ -66,6 +72,7 @@ export default function MaterialPage() {
       }
       localStorage.setItem("progress", JSON.stringify(progressData));
 
+      setContent(finalContent);
       setIsGenerated(true);
     } catch (err) {
       setError("資料の生成中にエラーが発生しました。もう一度お試しください。");
@@ -94,29 +101,19 @@ export default function MaterialPage() {
         </div>
         {isGenerated && (
           <div className="flex gap-3">
-            <Link
-              href={`/slides/${slug}`}
-              className="bg-purple-700 hover:bg-purple-600 text-white font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-            >
+            <Link href={`/slides/${slug}`} className="bg-purple-700 hover:bg-purple-600 text-white font-medium px-4 py-2 rounded-lg transition-colors">
               📊 スライド
             </Link>
-            <Link
-              href={`/quiz/${slug}`}
-              className="bg-green-700 hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-            >
+            <Link href={`/quiz/${slug}`} className="bg-green-700 hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition-colors">
               🎯 クイズ
             </Link>
-            <button
-              onClick={handleRegenerate}
-              className="bg-slate-700 hover:bg-slate-600 text-white font-medium px-4 py-2 rounded-lg transition-colors"
-            >
+            <button onClick={handleRegenerate} className="bg-slate-700 hover:bg-slate-600 text-white font-medium px-4 py-2 rounded-lg transition-colors">
               🔄 再生成
             </button>
           </div>
         )}
       </div>
 
-      {/* エラー */}
       {error && (
         <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-xl mb-6">
           {error}
@@ -124,38 +121,38 @@ export default function MaterialPage() {
         </div>
       )}
 
-      {/* 生成中インジケーター */}
+      {/* 生成中: プレーンテキストで直接DOM更新（チラつきなし） */}
       {isGenerating && (
-        <div className="bg-blue-900/30 border border-blue-700 rounded-xl p-4 mb-6 flex items-center gap-3">
-          <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-blue-300">Claude が専門医レベルの学習資料を生成中...</span>
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+          <div className="bg-blue-900/30 border-b border-blue-700 px-6 py-3 flex items-center gap-3">
+            <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-blue-300 text-sm">Gemini が専門医レベルの学習資料を生成中...</span>
+          </div>
+          <pre
+            ref={streamingRef}
+            className="p-8 text-slate-300 text-sm leading-relaxed whitespace-pre-wrap font-sans overflow-auto"
+            style={{ maxHeight: "70vh" }}
+          />
         </div>
       )}
 
-      {/* コンテンツ */}
-      {content && (
-        <div className="bg-slate-800 rounded-2xl p-8 border border-slate-700" ref={contentRef}>
+      {/* 生成完了: Markdownレンダリング */}
+      {isGenerated && content && (
+        <div className="bg-slate-800 rounded-2xl p-8 border border-slate-700">
           <div className="prose">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         </div>
       )}
 
-      {/* 生成完了後のアクション */}
       {isGenerated && (
         <div className="mt-8 grid grid-cols-2 gap-4">
-          <Link
-            href={`/slides/${slug}`}
-            className="bg-purple-900/50 hover:bg-purple-900/80 border border-purple-700 rounded-xl p-6 text-center transition-colors"
-          >
+          <Link href={`/slides/${slug}`} className="bg-purple-900/50 hover:bg-purple-900/80 border border-purple-700 rounded-xl p-6 text-center transition-colors">
             <div className="text-4xl mb-2">📊</div>
             <div className="text-white font-semibold text-lg">スライドで学ぶ</div>
             <div className="text-purple-300 text-sm mt-1">プレゼンテーション形式で復習</div>
           </Link>
-          <Link
-            href={`/quiz/${slug}`}
-            className="bg-green-900/50 hover:bg-green-900/80 border border-green-700 rounded-xl p-6 text-center transition-colors"
-          >
+          <Link href={`/quiz/${slug}`} className="bg-green-900/50 hover:bg-green-900/80 border border-green-700 rounded-xl p-6 text-center transition-colors">
             <div className="text-4xl mb-2">🎯</div>
             <div className="text-white font-semibold text-lg">クイズで確認</div>
             <div className="text-green-300 text-sm mt-1">専門医試験レベルの4択問題</div>

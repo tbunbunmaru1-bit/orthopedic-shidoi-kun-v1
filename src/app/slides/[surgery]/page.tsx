@@ -16,7 +16,8 @@ export default function SlidesPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGenerated, setIsGenerated] = useState(false);
   const [error, setError] = useState("");
-  const [rawContent, setRawContent] = useState("");
+  const streamingRef = useRef<HTMLPreElement>(null);
+  const fullContentRef = useRef("");
 
   useEffect(() => {
     const stored = localStorage.getItem(`slides_${slug}`);
@@ -47,6 +48,7 @@ export default function SlidesPage() {
   const generateSlides = async (material: string) => {
     setIsGenerating(true);
     setError("");
+    fullContentRef.current = "";
 
     try {
       const response = await fetch("/api/slides", {
@@ -59,15 +61,17 @@ export default function SlidesPage() {
 
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
-      let fullContent = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        fullContent += decoder.decode(value, { stream: true });
-        setRawContent(fullContent);
+        fullContentRef.current += decoder.decode(value, { stream: true });
+        if (streamingRef.current) {
+          streamingRef.current.textContent = fullContentRef.current;
+        }
       }
 
+      const fullContent = fullContentRef.current;
       // Marpのスライド区切りで分割
       const slideList = fullContent
         .split(/\n---\n/)
@@ -130,9 +134,16 @@ export default function SlidesPage() {
       )}
 
       {isGenerating && (
-        <div className="bg-purple-900/30 border border-purple-700 rounded-xl p-4 mb-6 flex items-center gap-3">
-          <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-purple-300">スライドを生成中...</span>
+        <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-6">
+          <div className="bg-purple-900/30 border-b border-purple-700 px-6 py-3 flex items-center gap-3">
+            <div className="w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-purple-300 text-sm">スライドを生成中...</span>
+          </div>
+          <pre
+            ref={streamingRef}
+            className="p-6 text-slate-300 text-sm leading-relaxed whitespace-pre-wrap font-sans overflow-auto"
+            style={{ maxHeight: "50vh" }}
+          />
         </div>
       )}
 
