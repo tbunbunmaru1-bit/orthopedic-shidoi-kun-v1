@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getQuizPrompt } from "@/lib/prompts";
 import { QuizQuestion } from "@/lib/types";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(request: Request) {
   const { surgeryName, content } = await request.json();
@@ -15,25 +15,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const stream = client.messages.stream({
-      model: "claude-opus-4-6",
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      messages: [
-        {
-          role: "user",
-          content: getQuizPrompt(surgeryName, content),
-        },
-      ],
-    });
-
-    const finalMessage = await stream.finalMessage();
-    const textBlock = finalMessage.content.find((b) => b.type === "text");
-    const rawText = textBlock?.type === "text" ? textBlock.text : "";
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const result = await model.generateContent(getQuizPrompt(surgeryName, content));
+    const rawText = result.response.text();
 
     let questions: QuizQuestion[] = [];
     try {
-      const parsed = JSON.parse(rawText);
+      const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(cleaned);
       questions = parsed.questions;
     } catch {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
